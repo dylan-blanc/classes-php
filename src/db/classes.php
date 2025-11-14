@@ -1,4 +1,5 @@
-<?php
+
+
 
 CREATE DATABASE IF NOT EXISTS classes;
 USE classes;
