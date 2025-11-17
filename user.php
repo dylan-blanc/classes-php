@@ -17,12 +17,12 @@ if ($conn->connect_error) {
 class User
 {
     private $id;
-    public $login;
-    public $password;
-    public $email;
-    public $firstname;
-    public $lastname;
-
+    private $login;
+    private $password;
+    private $email;
+    private $firstname;
+    private $lastname;
+    public $error;
 
     public function __construct($id, $login, $email, $firstname, $lastname)
     {
@@ -35,8 +35,30 @@ class User
     public function register($mysqli, $login, $password, $email, $firstname, $lastname)
     {
         if (empty($password)) {
+            $this->error = "Mot de passe requis";
             return false;
         }
+        if (empty($login) || empty($email) || empty($firstname) || empty($lastname)) {
+            $this->error = "Tous les champs sont requis";
+            return false;
+        }
+
+        // empeche d'enregistrer si doublon
+        $stmt = $mysqli->prepare("SELECT id FROM utilisateurs WHERE login = ? OR email = ?");
+        if (!$stmt) {
+            $this->error = "Erreur lors de l'enregistrement";
+            return false;
+        }
+        $stmt->bind_param("ss", $login, $email);
+        $stmt->execute();
+        $stmt->store_result();
+        if ($stmt->num_rows > 0) {
+            $this->error = "Login ou email déjà utilisé";
+            $stmt->close();
+            return false;
+        }
+        $stmt->close();
+
 
         $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
 
@@ -101,35 +123,58 @@ class User
             return false;
         }
 
-        if (!empty($password)) {
-            $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
-            $stmt = $mysqli->prepare("UPDATE utilisateurs SET login = ?, password = ?, email = ?, firstname = ?, lastname = ? WHERE id = ?");
-            $stmt->bind_param("sssssi", $login, $hashedPassword, $email, $firstname, $lastname, $this->id);
-            $result = $stmt->execute();
-            $stmt->close();
+        $fields = [];
+        $params = [];
+        $types = '';
 
-            if ($result) {
-                $this->login = $login;
-                $this->password = $hashedPassword;
-                $this->email = $email;
-                $this->firstname = $firstname;
-                $this->lastname = $lastname;
-            }
-            return $result;
-        } else {
-            $stmt = $mysqli->prepare("UPDATE utilisateurs SET login = ?, email = ?, firstname = ?, lastname = ? WHERE id = ?");
-            $stmt->bind_param("ssssi", $login, $email, $firstname, $lastname, $this->id);
-            $result = $stmt->execute();
-            $stmt->close();
-
-            if ($result) {
-                $this->login = $login;
-                $this->email = $email;
-                $this->firstname = $firstname;
-                $this->lastname = $lastname;
-            }
-            return $result;
+        if (!empty($login)) {
+            $fields[] = 'login = ?';
+            $params[] = $login;
+            $types .= 's';
         }
+        if (!empty($password)) {
+            $fields[] = 'password = ?';
+            $params[] = password_hash($password, PASSWORD_DEFAULT);
+            $types .= 's';
+        }
+        if (!empty($email)) {
+            $fields[] = 'email = ?';
+            $params[] = $email;
+            $types .= 's';
+        }
+        if (!empty($firstname)) {
+            $fields[] = 'firstname = ?';
+            $params[] = $firstname;
+            $types .= 's';
+        }
+        if (!empty($lastname)) {
+            $fields[] = 'lastname = ?';
+            $params[] = $lastname;
+            $types .= 's';
+        }
+
+        if (empty($fields)) {
+            // si aucun champs rempli alors :
+            return false;
+        }
+
+        $sql = "UPDATE utilisateurs SET " . implode(', ', $fields) . " WHERE id = ?";
+        $params[] = $this->id;
+        $types .= 'i';
+
+        $stmt = $mysqli->prepare($sql);
+        $stmt->bind_param($types, ...$params);
+        $result = $stmt->execute();
+        $stmt->close();
+
+        if ($result) {
+            if (!empty($login)) $this->login = $login;
+            if (!empty($password)) $this->password = password_hash($password, PASSWORD_DEFAULT);
+            if (!empty($email)) $this->email = $email;
+            if (!empty($firstname)) $this->firstname = $firstname;
+            if (!empty($lastname)) $this->lastname = $lastname;
+        }
+        return $result;
     }
 
     public function isConnected()
@@ -168,4 +213,3 @@ class User
         return $this->lastname;
     }
 }
-
